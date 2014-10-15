@@ -236,11 +236,10 @@ class CapifyEc2
   end
 
   def get_load_balancer_by_instance(instance_id)
-    hash = elb.load_balancers.inject({}) do |collect, load_balancer|
-      load_balancer.instances.each {|load_balancer_instance_id| collect[load_balancer_instance_id] = load_balancer}
-      collect
-    end
-    hash[instance_id]
+    # revised
+    a = []
+    elb.load_balancers.each{|lb| a << lb if lb.instances.include?(instance_id)}
+    a
   end
 
   def get_load_balancer_by_name(load_balancer_name)
@@ -256,10 +255,10 @@ class CapifyEc2
     return unless @ec2_config[:load_balanced]
     instance = get_instance_by_name(instance_name)
     return if instance.nil?
-    @@load_balancer = get_load_balancer_by_instance(instance.id)
-    return if @@load_balancer.nil?
-
-    elb.deregister_instances_from_load_balancer(instance.id, @@load_balancer.id)
+    # revised
+    load_balancers = get_load_balancer_by_instance(instance.id)
+    return if load_balancers.length < 1
+    load_balancers.each{|lb| elb.deregister_instances_from_load_balancer(instance.id, lb.id)}
   end
 
   def register_instance_in_elb(instance_name, load_balancer_name = '')
@@ -290,16 +289,18 @@ class CapifyEc2
   end
 
   def deregister_instance_from_elb_by_dns(server_dns)
+    # revised
     instance = get_instance_by_dns(server_dns)
-    load_balancer = get_load_balancer_by_instance(instance.id)
+    load_balancers = get_load_balancer_by_instance(instance.id)
 
-    if load_balancer
-      puts "[Capify-EC2] Removing instance from ELB '#{load_balancer.id}'..."
+    if load_balancers.length > 0
+      load_balancers.each do |load_balancer|
+        puts "[Capify-EC2] Removing instance from ELB '#{load_balancer.id}'..."
 
-      result = elb.deregister_instances_from_load_balancer(instance.id, load_balancer.id)
-      raise "Unable to remove instance from ELB '#{load_balancer.id}'..." unless result.status == 200
-
-      return load_balancer
+        result = elb.deregister_instances_from_load_balancer(instance.id, load_balancer.id)
+        raise "Unable to remove instance from ELB '#{load_balancer.id}'..." unless result.status == 200
+      end
+      return load_balancers
     end
     false
   end
